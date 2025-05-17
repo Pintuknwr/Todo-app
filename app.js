@@ -1,15 +1,21 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const path = require('path');
 const app = express();
-const port = process.env.PORT || 3000;
 
 // Set up middleware
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 
 // Store todos in memory (in a real app, you'd use a database)
 let todos = [];
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
 
 // Routes
 app.get('/', (req, res) => {
@@ -41,11 +47,23 @@ app.post('/delete/:id', (req, res) => {
     res.redirect('/');
 });
 
-// Export the app for Vercel
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).render('error', { error: 'Something broke!' });
+});
+
+// Handle 404
+app.use((req, res) => {
+    res.status(404).render('error', { error: 'Page not found' });
+});
+
+// Export the app
 module.exports = app;
 
-// Only listen directly if not running on Vercel
+// Start the server if running locally
 if (process.env.NODE_ENV !== 'production') {
+    const port = process.env.PORT || 3000;
     app.listen(port, () => {
         console.log(`Todo app listening at http://localhost:${port}`);
     });
