@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .todo-form {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .todo-input {
+            flex: 1;
+            padding: 8px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        .add-button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .add-button:hover {
+            background-color: #45a049;
+        }
+        .todo-list {
+            list-style: none;
+            padding: 0;
+        }
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background-color: #f9f9f9;
+            margin-bottom: 8px;
+            border-radius: 4px;
+        }
+        .todo-text {
+            flex: 1;
+            margin: 0 10px;
+        }
+        .completed {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .action-button {
+            padding: 4px 8px;
+            margin-left: 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .toggle-button {
+            background-color: #2196F3;
+            color: white;
+        }
+        .delete-button {
+            background-color: #f44336;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Todo App</h1>
+        
+        <form action="/add" method="POST" class="todo-form">
+            <input type="text" name="todo" placeholder="Enter a new todo" required class="todo-input">
+            <button type="submit" class="add-button">Add Todo</button>
+        </form>
+
+        <ul class="todo-list">
+            <% todos.forEach(todo => { %>
+                <li class="todo-item">
+                    <span class="todo-text <%= todo.completed ? 'completed' : '' %>">
+                        <%= todo.text %>
+                    </span>
+                    <form action="/toggle/<%= todo.id %>" method="POST" style="display: inline;">
+                        <button type="submit" class="action-button toggle-button">
+                            <%= todo.completed ? 'Undo' : 'Complete' %>
+                        </button>
+                    </form>
+                    <form action="/delete/<%= todo.id %>" method="POST" style="display: inline;">
+                        <button type="submit" class="action-button delete-button">Delete</button>
+                    </form>
+                </li>
+            <% }); %>
+        </ul>
+    </div>
+</body>
+</html> 
