@@ -1,42 +1,133 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
+const session = require('express-session');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+
+// Load environment variables
+dotenv.config();
+
+// Import models
+const User = require('./models/User');
+const Todo = require('./models/Todo');
+
 const app = express();
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/todoapp')
+    .then(() => console.log('Connected to MongoDB'))
+    .catch(err => console.error('MongoDB connection error:', err));
 
 // Set up middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 1000 * 60 * 60 * 24 // 24 hours
+    }
+}));
 
 // Configure EJS
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Store todos in memory (in a real app, you'd use a database)
-let todos = [];
+// Middleware to check if user is authenticated
+const isAuthenticated = (req, res, next) => {
+    if (req.session.userId) {
+        return next();
+    }
+    res.redirect('/login');
+};
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'ok', environment: process.env.NODE_ENV });
+// Auth routes
+app.get('/login', (req, res) => {
+    if (req.session.userId) {
+        return res.redirect('/');
+    }
+    res.render('login', { error: null });
 });
 
-// Routes
-app.get('/', async (req, res) => {
+app.post('/login', async (req, res) => {
     try {
-        res.render('index', { todos });
+        const { username, password } = req.body;
+        const user = await User.findOne({ username });
+        
+        if (!user || !(await user.comparePassword(password))) {
+            return res.render('login', { error: 'Invalid username or password' });
+        }
+
+        req.session.userId = user._id;
+        res.redirect('/');
+    } catch (error) {
+        console.error('Login error:', error);
+        res.render('login', { error: 'An error occurred during login' });
+    }
+});
+
+app.get('/register', (req, res) => {
+    if (req.session.userId) {
+        return res.redirect('/');
+    }
+    res.render('register', { error: null });
+});
+
+app.post('/register', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        const existingUser = await User.findOne({ username });
+        if (existingUser) {
+            return res.render('register', { error: 'Username already exists' });
+        }
+
+        const user = new User({ username, password });
+        await user.save();
+        
+        req.session.userId = user._id;
+        res.redirect('/');
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.render('register', { error: 'An error occurred during registration' });
+    }
+});
+
+app.get('/logout', (req, res) => {
+    req.session.destroy();
+    res.redirect('/login');
+});
+
+// Protected routes
+app.get('/', isAuthenticated, async (req, res) => {
+    try {
+        const user = await User.findById(req.session.userId);
+        const todos = await Todo.find({ userId: req.session.userId })
+            .sort({ dueDate: 1, priority: -1 });
+        
+        res.render('index', { 
+            todos,
+            username: user.username
+        });
     } catch (error) {
         console.error('Error rendering index:', error);
         res.status(500).send('Error rendering page');
     }
 });
 
-app.post('/add', (req, res) => {
+app.post('/add', isAuthenticated, async (req, res) => {
     try {
-        const todo = {
-            id: Date.now(),
-            text: req.body.todo,
-            completed: false
-        };
-        todos.push(todo);
+        const { todo, dueDate, priority } = req.body;
+        const newTodo = new Todo({
+            text: todo,
+            dueDate: new Date(dueDate),
+            priority,
+            userId: req.session.userId
+        });
+        await newTodo.save();
         res.redirect('/');
     } catch (error) {
         console.error('Error adding todo:', error);
@@ -44,12 +135,16 @@ app.post('/add', (req, res) => {
     }
 });
 
-app.post('/toggle/:id', (req, res) => {
+app.post('/toggle/:id', isAuthenticated, async (req, res) => {
     try {
-        const id = parseInt(req.params.id);
-        const todo = todos.find(t => t.id === id);
+        const todo = await Todo.findOne({ 
+            _id: req.params.id, 
+            userId: req.session.userId 
+        });
+        
         if (todo) {
             todo.completed = !todo.completed;
+            await todo.save();
         }
         res.redirect('/');
     } catch (error) {
@@ -58,10 +153,12 @@ app.post('/toggle/:id', (req, res) => {
     }
 });
 
-app.post('/delete/:id', (req, res) => {
+app.post('/delete/:id', isAuthenticated, async (req, res) => {
     try {
-        const id = parseInt(req.params.id);
-        todos = todos.filter(t => t.id !== id);
+        await Todo.deleteOne({ 
+            _id: req.params.id, 
+            userId: req.session.userId 
+        });
         res.redirect('/');
     } catch (error) {
         console.error('Error deleting todo:', error);

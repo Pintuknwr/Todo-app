@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f5f5f5;
@@ -18,21 +18,58 @@
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .username {
+            color: #666;
+        }
+        .logout-button {
+            padding: 8px 16px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .logout-button:hover {
+            background-color: #d32f2f;
+        }
         h1 {
             color: #333;
-            text-align: center;
+            margin: 0;
         }
         .todo-form {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr auto auto auto;
+            gap: 10px;
             margin-bottom: 20px;
         }
         .todo-input {
-            flex: 1;
             padding: 8px;
             font-size: 16px;
             border: 1px solid #ddd;
             border-radius: 4px;
-            margin-right: 10px;
+        }
+        .date-input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .priority-select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
         .add-button {
             padding: 8px 16px;
@@ -50,59 +87,122 @@
             padding: 0;
         }
         .todo-item {
-            display: flex;
+            display: grid;
+            grid-template-columns: auto 1fr auto auto auto;
             align-items: center;
+            gap: 10px;
             padding: 10px;
             background-color: #f9f9f9;
             margin-bottom: 8px;
             border-radius: 4px;
         }
         .todo-text {
-            flex: 1;
-            margin: 0 10px;
+            margin: 0;
+        }
+        .todo-meta {
+            font-size: 0.9em;
+            color: #666;
         }
         .completed {
             text-decoration: line-through;
             color: #888;
         }
+        .priority-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .priority-high {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .priority-medium {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+        .priority-low {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
         .action-button {
             padding: 4px 8px;
-            margin-left: 8px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            color: white;
         }
         .toggle-button {
             background-color: #2196F3;
-            color: white;
         }
         .delete-button {
             background-color: #f44336;
-            color: white;
+        }
+        .overdue {
+            color: #d32f2f;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Todo App</h1>
+        <div class="header">
+            <div class="user-info">
+                <h1>Todo App</h1>
+                <span class="username">Welcome, <%= username %></span>
+            </div>
+            <a href="/logout" class="logout-button">Logout</a>
+        </div>
         
         <form action="/add" method="POST" class="todo-form">
-            <input type="text" name="todo" placeholder="Enter a new todo" required class="todo-input">
+            <input 
+                type="text" 
+                name="todo" 
+                placeholder="Enter a new todo" 
+                required 
+                class="todo-input"
+            >
+            <input 
+                type="date" 
+                name="dueDate" 
+                required 
+                class="date-input"
+                value="<%= new Date().toISOString().split('T')[0] %>"
+            >
+            <select name="priority" class="priority-select">
+                <option value="low">Low Priority</option>
+                <option value="medium" selected>Medium Priority</option>
+                <option value="high">High Priority</option>
+            </select>
             <button type="submit" class="add-button">Add Todo</button>
         </form>
 
         <ul class="todo-list">
-            <% todos.forEach(todo => { %>
+            <% todos.forEach(todo => { 
+                const isOverdue = new Date(todo.dueDate) < new Date() && !todo.completed;
+                const formattedDate = new Date(todo.dueDate).toLocaleDateString();
+            %>
                 <li class="todo-item">
-                    <span class="todo-text <%= todo.completed ? 'completed' : '' %>">
-                        <%= todo.text %>
+                    <span class="priority-badge priority-<%= todo.priority %>">
+                        <%= todo.priority.charAt(0).toUpperCase() + todo.priority.slice(1) %>
                     </span>
-                    <form action="/toggle/<%= todo.id %>" method="POST" style="display: inline;">
+                    <div>
+                        <span class="todo-text <%= todo.completed ? 'completed' : '' %>">
+                            <%= todo.text %>
+                        </span>
+                        <div class="todo-meta <%= isOverdue ? 'overdue' : '' %>">
+                            Due: <%= formattedDate %>
+                            <% if (isOverdue) { %>
+                                (Overdue)
+                            <% } %>
+                        </div>
+                    </div>
+                    <form action="/toggle/<%= todo._id %>" method="POST" style="display: inline;">
                         <button type="submit" class="action-button toggle-button">
                             <%= todo.completed ? 'Undo' : 'Complete' %>
                         </button>
                     </form>
-                    <form action="/delete/<%= todo.id %>" method="POST" style="display: inline;">
+                    <form action="/delete/<%= todo._id %>" method="POST" style="display: inline;">
                         <button type="submit" class="action-button delete-button">Delete</button>
                     </form>
                 </li>
