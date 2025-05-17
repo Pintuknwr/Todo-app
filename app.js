@@ -14,10 +14,27 @@ const Todo = require('./models/Todo');
 
 const app = express();
 
+// MongoDB Connection Configuration
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Enable mongoose debug mode in development
+if (isDev) {
+    mongoose.set('debug', true);
+}
+
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/todoapp')
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => {
+        console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
+    })
+    .catch(err => {
+        console.error('MongoDB Connection Error:', err.message);
+        process.exit(1);
+    });
+
+// Basic connection monitoring
+mongoose.connection.on('disconnected', () => console.log('! MongoDB disconnected'));
+mongoose.connection.on('reconnected', () => console.log('✓ MongoDB reconnected'));
 
 // Set up middleware
 app.use(bodyParser.urlencoded({ extended: true }));
