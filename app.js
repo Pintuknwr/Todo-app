@@ -159,74 +159,84 @@ app.get('/register', (req, res) => {
 
 app.post('/register', async (req, res) => {
     try {
-        console.log('Registration attempt started');
+        console.log('=== Registration Start ===');
         const { username, password } = req.body;
         
-        // Log request body (excluding password)
-        console.log('Registration request:', { 
+        // Log request details
+        console.log('Request body:', {
             username,
             hasPassword: !!password,
-            bodyKeys: Object.keys(req.body)
+            bodyFields: Object.keys(req.body)
         });
 
-        // Input validation
+        // Validate input
         if (!username || !password) {
-            console.error('Missing required fields');
+            console.log('Missing required fields');
             return res.render('register', { error: 'Username and password are required' });
         }
 
-        // Check database connection
-        const dbState = mongoose.connection.readyState;
-        console.log('Database connection state:', dbState);
-        
-        if (dbState !== 1) {
-            console.error('Database not connected. Current state:', dbState);
-            return res.render('register', { error: 'Database connection error. Please try again.' });
+        // Log database state
+        console.log('Database state:', {
+            connectionState: mongoose.connection.readyState,
+            dbName: mongoose.connection.db?.databaseName || 'not_connected'
+        });
+
+        // Ensure database connection
+        if (mongoose.connection.readyState !== 1) {
+            await connectToDatabase();
         }
 
         try {
             // Check for existing user
-            console.log('Checking for existing user:', username);
-            const existingUser = await User.findOne({ username }).exec();
+            console.log('Checking for existing user...');
+            const existingUser = await User.findOne({ username }).lean();
             
             if (existingUser) {
                 console.log('Username already exists');
                 return res.render('register', { error: 'Username already exists' });
             }
 
-            // Create and validate user
-            console.log('Creating new user object');
-            const user = new User({ username, password });
-            
-            // Manual validation
+            // Create user
+            console.log('Creating new user...');
+            const user = new User({ 
+                username, 
+                password,
+                createdAt: new Date()
+            });
+
+            // Validate user object
+            console.log('Validating user object...');
             const validationError = user.validateSync();
             if (validationError) {
-                console.error('Validation error:', validationError.message);
-                return res.render('register', { error: validationError.message });
+                console.error('Validation error:', validationError);
+                return res.render('register', { 
+                    error: Object.values(validationError.errors)
+                        .map(err => err.message)
+                        .join(', ')
+                });
             }
 
             // Save user
-            console.log('Attempting to save user');
+            console.log('Saving user to database...');
             const savedUser = await user.save();
             console.log('User saved successfully:', {
                 id: savedUser._id,
-                username: savedUser.username
+                username: savedUser.username,
+                created: savedUser.createdAt
             });
 
             // Verify save
-            console.log('Verifying user save');
-            const verifiedUser = await User.findById(savedUser._id).exec();
-            
+            console.log('Verifying user in database...');
+            const verifiedUser = await User.findById(savedUser._id).lean();
             if (!verifiedUser) {
-                throw new Error('User save verification failed');
+                throw new Error('Failed to verify saved user');
             }
-            
-            console.log('User verified in database');
 
             // Set session
+            console.log('Setting up session...');
             req.session.userId = savedUser._id;
             req.session.username = savedUser.username;
-            
+
             // Save session explicitly
             await new Promise((resolve, reject) => {
                 req.session.save((err) => {
@@ -239,31 +249,44 @@ app.post('/register', async (req, res) => {
                 });
             });
 
-            console.log('Session saved successfully');
+            console.log('=== Registration Success ===');
             return res.redirect('/');
-            
+
         } catch (dbError) {
-            console.error('Database operation error:', dbError);
+            console.error('Database operation error:', {
+                name: dbError.name,
+                message: dbError.message,
+                code: dbError.code,
+                stack: dbError.stack
+            });
             throw dbError;
         }
+
     } catch (error) {
-        console.error('Registration error:', {
+        console.error('=== Registration Error ===');
+        console.error('Error details:', {
             name: error.name,
             message: error.message,
+            code: error.code,
             stack: error.stack
         });
 
         let errorMessage = 'An error occurred during registration.';
         
         if (error.name === 'ValidationError') {
-            errorMessage = 'Invalid input: ' + Object.values(error.errors).map(e => e.message).join(', ');
+            errorMessage = 'Invalid input: ' + Object.values(error.errors)
+                .map(err => err.message)
+                .join(', ');
         } else if (error.code === 11000) {
             errorMessage = 'Username already exists';
-        } else if (error.message.includes('Database connection')) {
+        } else if (error.message.includes('connection')) {
             errorMessage = 'Database connection error. Please try again.';
         }
 
-        return res.render('register', { error: errorMessage });
+        return res.render('register', { 
+            error: errorMessage,
+            username: username // Preserve the username in the form
+        });
     }
 });
 
