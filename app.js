@@ -14,61 +14,24 @@ const Todo = require('./models/Todo');
 
 const app = express();
 
-// MongoDB Connection Configuration
-const isDev = process.env.NODE_ENV !== 'production';
-
-// Enable mongoose debug mode in development
-if (isDev) {
-    mongoose.set('debug', true);
-}
-
-// Prevent multiple connections in serverless environment
-let cachedConnection = null;
+// Enable mongoose debug mode for development
+mongoose.set('debug', true);
 
 async function connectToDatabase() {
     try {
-        if (cachedConnection) {
-            console.log('Using cached database connection');
-            return cachedConnection;
-        }
-
-        console.log('Establishing new database connection');
+        console.log('Connecting to MongoDB...');
         
-        // Format the connection string to ensure todoapp database
-        let uri = process.env.MONGODB_URI;
+        const uri = process.env.MONGODB_URI;
         if (!uri) {
             throw new Error('MONGODB_URI is not defined');
         }
-        
-        // Remove any existing database name and set to todoapp
-        uri = uri.replace(/\/[^/?]+\?/, '/todoapp?');
-        
-        const connection = await mongoose.connect(uri, {
-            dbName: 'todoapp',
-            serverSelectionTimeoutMS: 5000,
-            socketTimeoutMS: 45000,
-            maxPoolSize: 10,
-            maxIdleTimeMS: 10000,
-            connectTimeoutMS: 10000
+
+        await mongoose.connect(uri, {
+            dbName: 'todoapp'
         });
 
-        // Wait for connection to be ready
-        await new Promise((resolve) => {
-            if (connection.connection.readyState === 1) {
-                resolve();
-            } else {
-                connection.connection.once('connected', resolve);
-            }
-        });
-
-        console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
-        
-        if (connection.connection.db) {
-            console.log('Database name:', connection.connection.db.databaseName);
-        }
-        
-        cachedConnection = connection;
-        return connection;
+        console.log('✓ Connected to MongoDB');
+        console.log('Database:', mongoose.connection.db.databaseName);
     } catch (error) {
         console.error('MongoDB Connection Error:', error.message);
         throw error;
@@ -83,7 +46,7 @@ app.use(async (req, res, next) => {
         }
         next();
     } catch (error) {
-        console.error('Database connection middleware error:', error);
+        console.error('Database connection error:', error);
         return res.status(500).render('error', { 
             error: 'Database connection error. Please try again.' 
         });
@@ -94,16 +57,10 @@ app.use(async (req, res, next) => {
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    secret: process.env.SESSION_SECRET || 'dev-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: {
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 1000 * 60 * 60 * 24, // 24 hours
-        sameSite: 'lax',
-        httpOnly: true
-    },
-    name: 'sessionId' // Change default session cookie name
+    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours
 }));
 
 // Configure EJS
@@ -134,27 +91,11 @@ app.post('/login', async (req, res) => {
         const user = await User.findOne({ username });
         
         if (!user || !(await user.comparePassword(password))) {
-            console.log('Login failed: Invalid credentials');
             return res.render('login', { error: 'Invalid username or password' });
         }
 
-        // Set session data
         req.session.userId = user._id;
         req.session.username = user.username;
-        
-        // Save session explicitly
-        await new Promise((resolve, reject) => {
-            req.session.save((err) => {
-                if (err) {
-                    console.error('Session save error:', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-
-        console.log('Login successful for user:', username);
         res.redirect('/');
     } catch (error) {
         console.error('Login error:', error);
@@ -171,19 +112,15 @@ app.get('/register', (req, res) => {
 
 app.post('/register', async (req, res) => {
     try {
-        console.log('=== Registration Start ===');
         const { username, password } = req.body;
         
-        // Input validation
         if (!username || !password) {
-            console.log('Missing required fields');
             return res.render('register', { 
                 error: 'Username and password are required',
                 username: username || ''
             });
         }
 
-        // Validate input length
         if (username.length < 3) {
             return res.render('register', {
                 error: 'Username must be at least 3 characters long',
@@ -198,78 +135,28 @@ app.post('/register', async (req, res) => {
             });
         }
 
-        // Ensure database connection
-        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-            console.log('Establishing database connection...');
-            await connectToDatabase();
-        }
-
-        // Verify database connection
-        if (!mongoose.connection || !mongoose.connection.db) {
-            throw new Error('Database connection not established');
-        }
-
-        // Create user
-        console.log('Creating new user...');
         const user = new User({
             username,
             password,
             createdAt: new Date()
         });
 
-        // Save user
-        console.log('Saving user...');
         const savedUser = await user.save();
-        
-        if (!savedUser) {
-            throw new Error('Failed to save user');
-        }
-
-        console.log('User saved successfully');
-
-        // Set session
         req.session.userId = savedUser._id;
         req.session.username = savedUser.username;
-
-        // Save session
-        await new Promise((resolve, reject) => {
-            req.session.save((err) => {
-                if (err) {
-                    console.error('Session save error:', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-
-        console.log('=== Registration Success ===');
-        return res.redirect('/');
-
-    } catch (error) {
-        console.error('=== Registration Error ===');
-        console.error({
-            name: error.name,
-            message: error.message,
-            code: error.code,
-            stack: error.stack
-        });
-
-        let errorMessage = 'An error occurred during registration.';
         
-        if (error.name === 'ValidationError') {
-            errorMessage = Object.values(error.errors)
-                .map(err => err.message)
-                .join(', ');
-        } else if (error.code === 11000) {
+        res.redirect('/');
+    } catch (error) {
+        console.error('Registration error:', error);
+        
+        let errorMessage = 'An error occurred during registration.';
+        if (error.code === 11000) {
             errorMessage = 'Username already exists';
-        } else if (error.message.includes('connection')) {
-            errorMessage = 'Database connection error. Please try again.';
         }
 
-        return res.render('register', {
+        res.render('register', {
             error: errorMessage,
-            username: username || ''
+            username: req.body.username || ''
         });
     }
 });
@@ -292,7 +179,7 @@ app.get('/', isAuthenticated, async (req, res) => {
         });
     } catch (error) {
         console.error('Error rendering index:', error);
-        res.status(500).send('Error rendering page');
+        res.status(500).send('Error loading todos');
     }
 });
 
@@ -344,83 +231,10 @@ app.post('/delete/:id', isAuthenticated, async (req, res) => {
     }
 });
 
-// Add this route before the error handling middleware
-app.get('/test-db', async (req, res) => {
-    try {
-        // Check database connection
-        const dbState = mongoose.connection.readyState;
-        const dbName = mongoose.connection.db.databaseName;
-        
-        // Count users
-        const userCount = await User.countDocuments();
-        
-        // Get all collections
-        const collections = await mongoose.connection.db.listCollections().toArray();
-        
-        res.json({
-            connected: dbState === 1,
-            databaseName: dbName,
-            userCount: userCount,
-            collections: collections.map(c => c.name),
-            mongodbUri: process.env.MONGODB_URI ? 'Set' : 'Not set'
-        });
-    } catch (error) {
-        res.status(500).json({
-            error: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Add this route before error handling middleware
-app.get('/test-db-write', async (req, res) => {
-    try {
-        // Check connection state
-        console.log('Database connection state:', mongoose.connection.readyState);
-        
-        // Try to write a test user
-        const testUser = new User({
-            username: `test_${Date.now()}`,
-            password: 'testpassword123'
-        });
-        
-        console.log('Attempting to save test user');
-        const savedUser = await testUser.save();
-        
-        // Try to read it back
-        const verifiedUser = await User.findById(savedUser._id);
-        
-        res.json({
-            success: true,
-            connectionState: mongoose.connection.readyState,
-            databaseName: mongoose.connection.db.databaseName,
-            savedUser: {
-                id: savedUser._id,
-                username: savedUser.username,
-                created: savedUser.createdAt
-            },
-            verified: !!verifiedUser,
-            totalUsers: await User.countDocuments()
-        });
-    } catch (error) {
-        console.error('Test DB write error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            connectionState: mongoose.connection.readyState,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
-    }
-});
-
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
-    console.error('Global error handler:', err);
-    res.status(500).render('error', { 
-        error: process.env.NODE_ENV === 'production' 
-            ? 'An error occurred' 
-            : err.message 
-    });
+    console.error('Error:', err);
+    res.status(500).render('error', { error: err.message });
 });
 
 // Handle 404
@@ -428,13 +242,8 @@ app.use((req, res) => {
     res.status(404).render('error', { error: 'Page not found' });
 });
 
-// Export the app
-module.exports = app;
-
-// Start the server if running locally
-if (process.env.NODE_ENV !== 'production') {
-    const port = process.env.PORT || 3000;
-    app.listen(port, () => {
-        console.log(`Todo app listening at http://localhost:${port}`);
-    });
-} 
+// Start the server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+    console.log(`Todo app listening at http://localhost:${port}`);
+}); 

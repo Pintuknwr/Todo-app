@@ -1,69 +1,100 @@
-# Todo App
+# Todo Application
 
-A simple Todo application built with Express.js and EJS templating engine.
+A simple Todo application built with Node.js, Express, and MongoDB.
 
 ## Features
 
-- Add new todos
-- Mark todos as complete/incomplete
-- Delete todos
-- Clean and responsive UI
+- User authentication (register/login)
+- Create, read, update, and delete todos
+- Priority levels for todos
+- Due dates for tasks
+- User-specific todo lists
+
+## Tech Stack
+
+- Node.js
+- Express.js
+- MongoDB (with Mongoose)
+- EJS templating
+- Express-session for authentication
 
 ## Prerequisites
 
-- Node.js installed on your system
-- Vercel CLI (for deployment)
+- Node.js (v12 or higher)
+- MongoDB Atlas account or local MongoDB installation
+- npm (Node Package Manager)
 
-## Installation
+## Setup
 
-1. Clone this repository or download the files
-2. Open a terminal in the project directory
-3. Install dependencies:
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd TodoApp
+```
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-## Running the Application Locally
-
-1. Start the server:
-```bash
-npm start
+3. Create a `.env` file in the root directory with the following variables:
+```
+MONGODB_URI=your_mongodb_connection_string
+SESSION_SECRET=your_session_secret
+PORT=3000
 ```
 
-Or for development with auto-reload:
+Replace `your_mongodb_connection_string` with your MongoDB connection URI and `your_session_secret` with a secure random string.
+
+## Development
+
+To run the application in development mode with auto-reload:
+
 ```bash
 npm run dev
 ```
 
-2. Open your browser and navigate to `http://localhost:3000`
+The application will be available at `http://localhost:3000`
 
-## Deploying to Vercel
+## Project Structure
 
-1. Install Vercel CLI globally (if not already installed):
-```bash
-npm install -g vercel
+```
+TodoApp/
+├── models/          # Database models
+│   ├── Todo.js     # Todo model
+│   └── User.js     # User model
+├── views/          # EJS templates
+│   ├── index.ejs   # Main todo list
+│   ├── login.ejs   # Login form
+│   └── register.ejs # Registration form
+├── public/         # Static files
+│   ├── css/       # Stylesheets
+│   └── js/        # Client-side JavaScript
+├── app.js         # Main application file
+├── package.json   # Project dependencies
+└── .env          # Environment variables
 ```
 
-2. Login to Vercel:
-```bash
-vercel login
-```
+## API Routes
 
-3. Deploy the application:
-```bash
-vercel
-```
+### Authentication
+- `GET /login` - Login page
+- `POST /login` - Login user
+- `GET /register` - Registration page
+- `POST /register` - Register new user
+- `GET /logout` - Logout user
 
-4. For subsequent deployments:
-```bash
-vercel --prod
-```
+### Todo Operations
+- `GET /` - View all todos
+- `POST /add` - Add new todo
+- `POST /toggle/:id` - Toggle todo completion
+- `POST /delete/:id` - Delete todo
 
-## Usage
+## Environment Variables
 
-- To add a todo: Type your todo in the input field and click "Add Todo"
-- To mark a todo as complete/incomplete: Click the "Complete"/"Undo" button
-- To delete a todo: Click the "Delete" button
+- `MONGODB_URI`: MongoDB connection string
+- `SESSION_SECRET`: Secret for session encryption
+- `PORT`: Application port (defaults to 3000)
 
 ## Important Note
 
