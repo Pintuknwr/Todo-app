@@ -26,38 +26,46 @@ if (isDev) {
 let cachedConnection = null;
 
 async function connectToDatabase() {
-    if (cachedConnection) {
-        console.log('Using cached database connection');
-        return cachedConnection;
-    }
-
-    console.log('Establishing new database connection');
     try {
+        if (cachedConnection) {
+            console.log('Using cached database connection');
+            return cachedConnection;
+        }
+
+        console.log('Establishing new database connection');
+        
         // Format the connection string to ensure todoapp database
         let uri = process.env.MONGODB_URI;
+        if (!uri) {
+            throw new Error('MONGODB_URI is not defined');
+        }
         
         // Remove any existing database name and set to todoapp
         uri = uri.replace(/\/[^/?]+\?/, '/todoapp?');
         
-        console.log('Connecting to database: todoapp');
-        
         const connection = await mongoose.connect(uri, {
-            dbName: 'todoapp',  // Force todoapp database
+            dbName: 'todoapp',
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
             maxPoolSize: 10,
             maxIdleTimeMS: 10000,
             connectTimeoutMS: 10000
         });
-        
-        // Verify we're connected to the right database
-        const dbName = connection.connection.db.databaseName;
-        if (dbName !== 'todoapp') {
-            throw new Error(`Connected to wrong database: ${dbName}. Expected: todoapp`);
-        }
-        
+
+        // Wait for connection to be ready
+        await new Promise((resolve) => {
+            if (connection.connection.readyState === 1) {
+                resolve();
+            } else {
+                connection.connection.once('connected', resolve);
+            }
+        });
+
         console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
-        console.log('Database name:', dbName);
+        
+        if (connection.connection.db) {
+            console.log('Database name:', connection.connection.db.databaseName);
+        }
         
         cachedConnection = connection;
         return connection;
@@ -70,11 +78,15 @@ async function connectToDatabase() {
 // Connect to database before handling requests
 app.use(async (req, res, next) => {
     try {
-        await connectToDatabase();
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+            await connectToDatabase();
+        }
         next();
     } catch (error) {
         console.error('Database connection middleware error:', error);
-        res.status(500).send('Database connection error');
+        return res.status(500).render('error', { 
+            error: 'Database connection error. Please try again.' 
+        });
     }
 });
 
@@ -187,31 +199,18 @@ app.post('/register', async (req, res) => {
         }
 
         // Ensure database connection
-        if (mongoose.connection.readyState !== 1) {
+        if (!mongoose.connection || mongoose.connection.readyState !== 1) {
             console.log('Establishing database connection...');
             await connectToDatabase();
         }
 
-        // Check current database
-        const dbName = mongoose.connection.db.databaseName;
-        console.log('Current database:', dbName);
-        
-        if (dbName !== 'todoapp') {
-            console.error('Wrong database connected:', dbName);
-            throw new Error('Connected to wrong database');
-        }
-
-        // Check for existing user
-        const existingUser = await User.findOne({ username }).select('username').lean();
-        if (existingUser) {
-            console.log('Username already exists');
-            return res.render('register', {
-                error: 'Username already exists',
-                username
-            });
+        // Verify database connection
+        if (!mongoose.connection || !mongoose.connection.db) {
+            throw new Error('Database connection not established');
         }
 
         // Create user
+        console.log('Creating new user...');
         const user = new User({
             username,
             password,
@@ -226,16 +225,7 @@ app.post('/register', async (req, res) => {
             throw new Error('Failed to save user');
         }
 
-        console.log('User saved:', {
-            id: savedUser._id,
-            username: savedUser.username
-        });
-
-        // Verify in database
-        const verifiedUser = await User.findById(savedUser._id).select('_id username').lean();
-        if (!verifiedUser) {
-            throw new Error('User verification failed');
-        }
+        console.log('User saved successfully');
 
         // Set session
         req.session.userId = savedUser._id;
@@ -273,8 +263,6 @@ app.post('/register', async (req, res) => {
                 .join(', ');
         } else if (error.code === 11000) {
             errorMessage = 'Username already exists';
-        } else if (error.message.includes('wrong database')) {
-            errorMessage = 'Database configuration error. Please try again.';
         } else if (error.message.includes('connection')) {
             errorMessage = 'Database connection error. Please try again.';
         }
