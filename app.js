@@ -33,23 +33,31 @@ async function connectToDatabase() {
 
     console.log('Establishing new database connection');
     try {
-        // Ensure we're connecting to the todoapp database
+        // Format the connection string to ensure todoapp database
         let uri = process.env.MONGODB_URI;
-        if (!uri.includes('/todoapp?')) {
-            uri = uri.replace('/?', '/todoapp?');
-        }
+        
+        // Remove any existing database name and set to todoapp
+        uri = uri.replace(/\/[^/?]+\?/, '/todoapp?');
+        
+        console.log('Connecting to database: todoapp');
         
         const connection = await mongoose.connect(uri, {
+            dbName: 'todoapp',  // Force todoapp database
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
             maxPoolSize: 10,
             maxIdleTimeMS: 10000,
-            connectTimeoutMS: 10000,
-            dbName: 'todoapp' // Explicitly set database name
+            connectTimeoutMS: 10000
         });
         
+        // Verify we're connected to the right database
+        const dbName = connection.connection.db.databaseName;
+        if (dbName !== 'todoapp') {
+            throw new Error(`Connected to wrong database: ${dbName}. Expected: todoapp`);
+        }
+        
         console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
-        console.log('Database name:', connection.connection.db.databaseName);
+        console.log('Database name:', dbName);
         
         cachedConnection = connection;
         return connection;
@@ -109,13 +117,32 @@ app.get('/login', (req, res) => {
 app.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
+        console.log('Login attempt for username:', username);
+        
         const user = await User.findOne({ username });
         
         if (!user || !(await user.comparePassword(password))) {
+            console.log('Login failed: Invalid credentials');
             return res.render('login', { error: 'Invalid username or password' });
         }
 
+        // Set session data
         req.session.userId = user._id;
+        req.session.username = user.username;
+        
+        // Save session explicitly
+        await new Promise((resolve, reject) => {
+            req.session.save((err) => {
+                if (err) {
+                    console.error('Session save error:', err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            });
+        });
+
+        console.log('Login successful for user:', username);
         res.redirect('/');
     } catch (error) {
         console.error('Login error:', error);
