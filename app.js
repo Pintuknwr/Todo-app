@@ -22,42 +22,46 @@ if (isDev) {
     mongoose.set('debug', true);
 }
 
-// Connect to MongoDB with optimized serverless settings
-console.log('Attempting to connect to MongoDB...');
-const mongoUri = process.env.MONGODB_URI;
-console.log('MongoDB URI (masked):', mongoUri.replace(/mongodb\+srv:\/\/([^:]+):([^@]+)@/, 'mongodb+srv://[username]:[password]@'));
+// Prevent multiple connections in serverless environment
+let cachedConnection = null;
 
-mongoose.connect(mongoUri, {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-    maxPoolSize: 10,
-    maxIdleTimeMS: 10000,
-    connectTimeoutMS: 10000,
-})
-    .then(() => {
-        console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
-        // Log the current database name
-        console.log('Connected to database:', mongoose.connection.name);
-        // Log collections
-        mongoose.connection.db.listCollections().toArray((err, collections) => {
-            if (err) {
-                console.error('Error listing collections:', err);
-            } else {
-                console.log('Available collections:', collections.map(c => c.name));
-            }
+async function connectToDatabase() {
+    if (cachedConnection) {
+        console.log('Using cached database connection');
+        return cachedConnection;
+    }
+
+    console.log('Establishing new database connection');
+    try {
+        const connection = await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000,
+            maxPoolSize: 10,
+            maxIdleTimeMS: 10000,
+            connectTimeoutMS: 10000,
         });
-    })
-    .catch(err => {
-        console.error('MongoDB Connection Error:', err.message);
-        // Don't exit process in production, just log the error
-        if (isDev) {
-            process.exit(1);
-        }
-    });
+        
+        console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
+        console.log('Database name:', connection.connection.db.databaseName);
+        
+        cachedConnection = connection;
+        return connection;
+    } catch (error) {
+        console.error('MongoDB Connection Error:', error.message);
+        throw error;
+    }
+}
 
-// Basic connection monitoring
-mongoose.connection.on('disconnected', () => console.log('! MongoDB disconnected'));
-mongoose.connection.on('reconnected', () => console.log('✓ MongoDB reconnected'));
+// Connect to database before handling requests
+app.use(async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        next();
+    } catch (error) {
+        console.error('Database connection middleware error:', error);
+        res.status(500).send('Database connection error');
+    }
+});
 
 // Set up middleware
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -121,59 +125,98 @@ app.get('/register', (req, res) => {
 
 app.post('/register', async (req, res) => {
     try {
+        console.log('Registration attempt started');
         const { username, password } = req.body;
         
+        // Log request body (excluding password)
+        console.log('Registration request:', { 
+            username,
+            hasPassword: !!password,
+            bodyKeys: Object.keys(req.body)
+        });
+
         // Input validation
         if (!username || !password) {
-            console.error('Missing required fields:', { username: !!username, password: !!password });
+            console.error('Missing required fields:', { 
+                hasUsername: !!username, 
+                hasPassword: !!password 
+            });
             return res.render('register', { error: 'Username and password are required' });
         }
 
-        if (username.length < 3) {
-            console.error('Username too short:', username.length);
-            return res.render('register', { error: 'Username must be at least 3 characters long' });
+        // Check database connection
+        if (mongoose.connection.readyState !== 1) {
+            console.error('Database not connected. Current state:', mongoose.connection.readyState);
+            throw new Error('Database connection not ready');
         }
 
-        if (password.length < 6) {
-            console.error('Password too short:', password.length);
-            return res.render('register', { error: 'Password must be at least 6 characters long' });
-        }
-        
-        console.log('Registration attempt for username:', username);
-        
+        // Check for existing user
+        console.log('Checking for existing user');
         const existingUser = await User.findOne({ username });
         if (existingUser) {
             console.log('Username already exists:', username);
             return res.render('register', { error: 'Username already exists' });
         }
 
+        // Create user object
+        console.log('Creating new user object');
         const user = new User({ username, password });
-        console.log('Created new user object:', { username, userId: user._id });
         
-        await user.save();
-        console.log('Successfully saved user to database:', { username, userId: user._id });
-        
-        // Verify the user was actually saved
-        const savedUser = await User.findById(user._id);
-        if (!savedUser) {
-            console.error('User was not saved properly:', { username, userId: user._id });
-            throw new Error('User creation failed - verification failed');
+        // Validate user object
+        const validationError = user.validateSync();
+        if (validationError) {
+            console.error('Validation error:', validationError);
+            return res.render('register', { error: 'Invalid input data' });
         }
-        console.log('Verified user in database:', { username, userId: user._id });
-        
-        req.session.userId = user._id;
-        res.redirect('/');
+
+        // Save user
+        console.log('Attempting to save user');
+        const savedUser = await user.save();
+        console.log('User saved successfully:', {
+            id: savedUser._id,
+            username: savedUser.username,
+            created: savedUser.createdAt
+        });
+
+        // Verify save
+        const verifiedUser = await User.findById(savedUser._id);
+        if (!verifiedUser) {
+            console.error('User verification failed after save');
+            throw new Error('User save verification failed');
+        }
+        console.log('User verified in database');
+
+        // Set session
+        req.session.userId = savedUser._id;
+        console.log('Session set:', { userId: req.session.userId });
+
+        // Redirect
+        return res.redirect('/');
     } catch (error) {
-        console.error('Registration error:', error);
-        // Log more detailed error information
+        console.error('Registration error:', {
+            message: error.message,
+            stack: error.stack,
+            code: error.code,
+            name: error.name
+        });
+
         if (error.name === 'ValidationError') {
-            console.error('Validation error details:', error.errors);
-            return res.render('register', { error: 'Invalid input: ' + Object.values(error.errors).map(e => e.message).join(', ') });
+            return res.render('register', { 
+                error: 'Invalid input: ' + Object.values(error.errors).map(e => e.message).join(', ') 
+            });
         } else if (error.code === 11000) {
-            console.error('Duplicate key error:', error.keyValue);
-            return res.render('register', { error: 'Username already exists' });
+            return res.render('register', { 
+                error: 'Username already exists' 
+            });
+        } else if (error.message.includes('Database connection')) {
+            return res.render('register', { 
+                error: 'Database connection error. Please try again.' 
+            });
         }
-        res.render('register', { error: 'An error occurred during registration. Please try again.' });
+
+        return res.render('register', { 
+            error: 'An error occurred during registration. Please try again.' 
+        });
     }
 });
 
@@ -270,6 +313,47 @@ app.get('/test-db', async (req, res) => {
     } catch (error) {
         res.status(500).json({
             error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Add this route before error handling middleware
+app.get('/test-db-write', async (req, res) => {
+    try {
+        // Check connection state
+        console.log('Database connection state:', mongoose.connection.readyState);
+        
+        // Try to write a test user
+        const testUser = new User({
+            username: `test_${Date.now()}`,
+            password: 'testpassword123'
+        });
+        
+        console.log('Attempting to save test user');
+        const savedUser = await testUser.save();
+        
+        // Try to read it back
+        const verifiedUser = await User.findById(savedUser._id);
+        
+        res.json({
+            success: true,
+            connectionState: mongoose.connection.readyState,
+            databaseName: mongoose.connection.db.databaseName,
+            savedUser: {
+                id: savedUser._id,
+                username: savedUser.username,
+                created: savedUser.createdAt
+            },
+            verified: !!verifiedUser,
+            totalUsers: await User.countDocuments()
+        });
+    } catch (error) {
+        console.error('Test DB write error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            connectionState: mongoose.connection.readyState,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
