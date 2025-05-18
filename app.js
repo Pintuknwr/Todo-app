@@ -45,8 +45,11 @@ app.use(session({
     saveUninitialized: false,
     cookie: {
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 1000 * 60 * 60 * 24 // 24 hours
-    }
+        maxAge: 1000 * 60 * 60 * 24, // 24 hours
+        sameSite: 'lax',
+        httpOnly: true
+    },
+    name: 'sessionId' // Change default session cookie name
 }));
 
 // Configure EJS
