@@ -123,6 +123,22 @@ app.post('/register', async (req, res) => {
     try {
         const { username, password } = req.body;
         
+        // Input validation
+        if (!username || !password) {
+            console.error('Missing required fields:', { username: !!username, password: !!password });
+            return res.render('register', { error: 'Username and password are required' });
+        }
+
+        if (username.length < 3) {
+            console.error('Username too short:', username.length);
+            return res.render('register', { error: 'Username must be at least 3 characters long' });
+        }
+
+        if (password.length < 6) {
+            console.error('Password too short:', password.length);
+            return res.render('register', { error: 'Password must be at least 6 characters long' });
+        }
+        
         console.log('Registration attempt for username:', username);
         
         const existingUser = await User.findOne({ username });
@@ -137,6 +153,14 @@ app.post('/register', async (req, res) => {
         await user.save();
         console.log('Successfully saved user to database:', { username, userId: user._id });
         
+        // Verify the user was actually saved
+        const savedUser = await User.findById(user._id);
+        if (!savedUser) {
+            console.error('User was not saved properly:', { username, userId: user._id });
+            throw new Error('User creation failed - verification failed');
+        }
+        console.log('Verified user in database:', { username, userId: user._id });
+        
         req.session.userId = user._id;
         res.redirect('/');
     } catch (error) {
@@ -144,10 +168,12 @@ app.post('/register', async (req, res) => {
         // Log more detailed error information
         if (error.name === 'ValidationError') {
             console.error('Validation error details:', error.errors);
+            return res.render('register', { error: 'Invalid input: ' + Object.values(error.errors).map(e => e.message).join(', ') });
         } else if (error.code === 11000) {
             console.error('Duplicate key error:', error.keyValue);
+            return res.render('register', { error: 'Username already exists' });
         }
-        res.render('register', { error: 'An error occurred during registration' });
+        res.render('register', { error: 'An error occurred during registration. Please try again.' });
     }
 });
 
@@ -218,6 +244,34 @@ app.post('/delete/:id', isAuthenticated, async (req, res) => {
     } catch (error) {
         console.error('Error deleting todo:', error);
         res.status(500).send('Error deleting todo');
+    }
+});
+
+// Add this route before the error handling middleware
+app.get('/test-db', async (req, res) => {
+    try {
+        // Check database connection
+        const dbState = mongoose.connection.readyState;
+        const dbName = mongoose.connection.db.databaseName;
+        
+        // Count users
+        const userCount = await User.countDocuments();
+        
+        // Get all collections
+        const collections = await mongoose.connection.db.listCollections().toArray();
+        
+        res.json({
+            connected: dbState === 1,
+            databaseName: dbName,
+            userCount: userCount,
+            collections: collections.map(c => c.name),
+            mongodbUri: process.env.MONGODB_URI ? 'Set' : 'Not set'
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
