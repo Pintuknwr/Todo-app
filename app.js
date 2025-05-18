@@ -162,109 +162,103 @@ app.post('/register', async (req, res) => {
         console.log('=== Registration Start ===');
         const { username, password } = req.body;
         
-        // Log request details
-        console.log('Request body:', {
-            username,
-            hasPassword: !!password,
-            bodyFields: Object.keys(req.body)
-        });
-
-        // Validate input
+        // Input validation
         if (!username || !password) {
             console.log('Missing required fields');
-            return res.render('register', { error: 'Username and password are required' });
+            return res.render('register', { 
+                error: 'Username and password are required',
+                username: username || ''
+            });
         }
 
-        // Log database state
-        console.log('Database state:', {
-            connectionState: mongoose.connection.readyState,
-            dbName: mongoose.connection.db?.databaseName || 'not_connected'
-        });
+        // Validate input length
+        if (username.length < 3) {
+            return res.render('register', {
+                error: 'Username must be at least 3 characters long',
+                username
+            });
+        }
+
+        if (password.length < 6) {
+            return res.render('register', {
+                error: 'Password must be at least 6 characters long',
+                username
+            });
+        }
 
         // Ensure database connection
         if (mongoose.connection.readyState !== 1) {
+            console.log('Establishing database connection...');
             await connectToDatabase();
         }
 
-        try {
-            // Check for existing user
-            console.log('Checking for existing user...');
-            const existingUser = await User.findOne({ username }).lean();
-            
-            if (existingUser) {
-                console.log('Username already exists');
-                return res.render('register', { error: 'Username already exists' });
-            }
-
-            // Create user
-            console.log('Creating new user...');
-            const user = new User({ 
-                username, 
-                password,
-                createdAt: new Date()
-            });
-
-            // Validate user object
-            console.log('Validating user object...');
-            const validationError = user.validateSync();
-            if (validationError) {
-                console.error('Validation error:', validationError);
-                return res.render('register', { 
-                    error: Object.values(validationError.errors)
-                        .map(err => err.message)
-                        .join(', ')
-                });
-            }
-
-            // Save user
-            console.log('Saving user to database...');
-            const savedUser = await user.save();
-            console.log('User saved successfully:', {
-                id: savedUser._id,
-                username: savedUser.username,
-                created: savedUser.createdAt
-            });
-
-            // Verify save
-            console.log('Verifying user in database...');
-            const verifiedUser = await User.findById(savedUser._id).lean();
-            if (!verifiedUser) {
-                throw new Error('Failed to verify saved user');
-            }
-
-            // Set session
-            console.log('Setting up session...');
-            req.session.userId = savedUser._id;
-            req.session.username = savedUser.username;
-
-            // Save session explicitly
-            await new Promise((resolve, reject) => {
-                req.session.save((err) => {
-                    if (err) {
-                        console.error('Session save error:', err);
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
-            });
-
-            console.log('=== Registration Success ===');
-            return res.redirect('/');
-
-        } catch (dbError) {
-            console.error('Database operation error:', {
-                name: dbError.name,
-                message: dbError.message,
-                code: dbError.code,
-                stack: dbError.stack
-            });
-            throw dbError;
+        // Check current database
+        const dbName = mongoose.connection.db.databaseName;
+        console.log('Current database:', dbName);
+        
+        if (dbName !== 'todoapp') {
+            console.error('Wrong database connected:', dbName);
+            throw new Error('Connected to wrong database');
         }
+
+        // Check for existing user
+        const existingUser = await User.findOne({ username }).select('username').lean();
+        if (existingUser) {
+            console.log('Username already exists');
+            return res.render('register', {
+                error: 'Username already exists',
+                username
+            });
+        }
+
+        // Create user
+        const user = new User({
+            username,
+            password,
+            createdAt: new Date()
+        });
+
+        // Save user
+        console.log('Saving user...');
+        const savedUser = await user.save();
+        
+        if (!savedUser) {
+            throw new Error('Failed to save user');
+        }
+
+        console.log('User saved:', {
+            id: savedUser._id,
+            username: savedUser.username
+        });
+
+        // Verify in database
+        const verifiedUser = await User.findById(savedUser._id).select('_id username').lean();
+        if (!verifiedUser) {
+            throw new Error('User verification failed');
+        }
+
+        // Set session
+        req.session.userId = savedUser._id;
+        req.session.username = savedUser.username;
+
+        // Save session
+        await new Promise((resolve, reject) => {
+            req.session.save((err) => {
+                if (err) {
+                    console.error('Session save error:', err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            });
+        });
+
+        console.log('=== Registration Success ===');
+        return res.redirect('/');
 
     } catch (error) {
         console.error('=== Registration Error ===');
-        console.error('Error details:', {
+        console.error({
             name: error.name,
             message: error.message,
             code: error.code,
@@ -274,18 +268,20 @@ app.post('/register', async (req, res) => {
         let errorMessage = 'An error occurred during registration.';
         
         if (error.name === 'ValidationError') {
-            errorMessage = 'Invalid input: ' + Object.values(error.errors)
+            errorMessage = Object.values(error.errors)
                 .map(err => err.message)
                 .join(', ');
         } else if (error.code === 11000) {
             errorMessage = 'Username already exists';
+        } else if (error.message.includes('wrong database')) {
+            errorMessage = 'Database configuration error. Please try again.';
         } else if (error.message.includes('connection')) {
             errorMessage = 'Database connection error. Please try again.';
         }
 
-        return res.render('register', { 
+        return res.render('register', {
             error: errorMessage,
-            username: username // Preserve the username in the form
+            username: username || ''
         });
     }
 });
