@@ -23,7 +23,11 @@ if (isDev) {
 }
 
 // Connect to MongoDB with optimized serverless settings
-mongoose.connect(process.env.MONGODB_URI, {
+console.log('Attempting to connect to MongoDB...');
+const mongoUri = process.env.MONGODB_URI;
+console.log('MongoDB URI (masked):', mongoUri.replace(/mongodb\+srv:\/\/([^:]+):([^@]+)@/, 'mongodb+srv://[username]:[password]@'));
+
+mongoose.connect(mongoUri, {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
     maxPoolSize: 10,
