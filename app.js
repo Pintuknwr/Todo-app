@@ -22,14 +22,23 @@ if (isDev) {
     mongoose.set('debug', true);
 }
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+// Connect to MongoDB with optimized serverless settings
+mongoose.connect(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+    maxPoolSize: 10,
+    maxIdleTimeMS: 10000,
+    connectTimeoutMS: 10000,
+})
     .then(() => {
         console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
     })
     .catch(err => {
         console.error('MongoDB Connection Error:', err.message);
-        process.exit(1);
+        // Don't exit process in production, just log the error
+        if (isDev) {
+            process.exit(1);
+        }
     });
 
 // Basic connection monitoring
