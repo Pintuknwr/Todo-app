@@ -36,6 +36,16 @@ mongoose.connect(mongoUri, {
 })
     .then(() => {
         console.log(`✓ Connected to MongoDB (${isDev ? 'Development' : 'Production'})`);
+        // Log the current database name
+        console.log('Connected to database:', mongoose.connection.name);
+        // Log collections
+        mongoose.connection.db.listCollections().toArray((err, collections) => {
+            if (err) {
+                console.error('Error listing collections:', err);
+            } else {
+                console.log('Available collections:', collections.map(c => c.name));
+            }
+        });
     })
     .catch(err => {
         console.error('MongoDB Connection Error:', err.message);
@@ -113,18 +123,30 @@ app.post('/register', async (req, res) => {
     try {
         const { username, password } = req.body;
         
+        console.log('Registration attempt for username:', username);
+        
         const existingUser = await User.findOne({ username });
         if (existingUser) {
+            console.log('Username already exists:', username);
             return res.render('register', { error: 'Username already exists' });
         }
 
         const user = new User({ username, password });
+        console.log('Created new user object:', { username, userId: user._id });
+        
         await user.save();
+        console.log('Successfully saved user to database:', { username, userId: user._id });
         
         req.session.userId = user._id;
         res.redirect('/');
     } catch (error) {
         console.error('Registration error:', error);
+        // Log more detailed error information
+        if (error.name === 'ValidationError') {
+            console.error('Validation error details:', error.errors);
+        } else if (error.code === 11000) {
+            console.error('Duplicate key error:', error.keyValue);
+        }
         res.render('register', { error: 'An error occurred during registration' });
     }
 });
